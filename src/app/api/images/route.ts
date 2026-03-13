@@ -1,39 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateImage } from "@/lib/gemini";
 
-// Vercel: max execution time (Free=10s, Pro=300s)
-export const maxDuration = 60;
-
+// Retorna a API key e o prompt montado — a geração acontece no client (sem timeout da Vercel)
 export async function POST(req: NextRequest) {
   try {
-    const { productImage, productName, variations } = await req.json();
+    const { productName, variations } = await req.json();
 
-    const results: string[] = [];
+    const prompts = variations.map((variation: { fundo: string; cor: string; estilo: string }) =>
+      buildImagePrompt(productName, variation)
+    );
 
-    const errors: string[] = [];
-
-    for (const variation of variations) {
-      const prompt = buildImagePrompt(productName, variation);
-      console.log("Prompt imagem:", prompt.substring(0, 120) + "...");
-
-      try {
-        const imageBase64 = await generateImage(
-          prompt,
-          productImage || undefined,
-          "image/png"
-        );
-        results.push(imageBase64);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Erro desconhecido";
-        console.error("Erro gerando variação:", msg);
-        errors.push(msg);
-      }
-    }
-
-    return NextResponse.json({ images: results, errors });
+    return NextResponse.json({
+      apiKey: process.env.GEMINI_API_KEY,
+      prompts,
+    });
   } catch (error) {
-    console.error("Erro ao gerar imagens:", error);
-    const message = error instanceof Error ? error.message : "Erro ao gerar imagens";
+    console.error("Erro ao montar prompts:", error);
+    const message = error instanceof Error ? error.message : "Erro ao montar prompts";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -42,7 +24,6 @@ function buildImagePrompt(
   productName: string,
   variation: { fundo: string; cor: string; estilo: string }
 ): string {
-  // === FUNDOS ===
   const fundos: Record<string, string> = {
     branco: "pure white background, clean studio photography, bright even lighting",
     mesa_madeira: "on a light oak wooden table, warm natural lighting, cozy setting",
@@ -66,7 +47,6 @@ function buildImagePrompt(
     papel_kraft: "on kraft brown paper, artisanal handmade feel, rustic setting",
   };
 
-  // === ESTILOS ===
   const estilos: Record<string, string> = {
     principal: "centered product shot, perfectly framed, sharp focus on entire product",
     detalhe: "extreme close-up macro shot, showing fine print details and texture quality",

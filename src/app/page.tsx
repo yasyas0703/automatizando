@@ -188,7 +188,7 @@ export default function Home() {
       }
       setConteudo(genData);
 
-      // 3. Imagens — pareamento 1:1 (fundo[0]+estilo[0], fundo[1]+estilo[1], ...)
+      // 3. Imagens — pareamento 1:1, geração no client (sem timeout da Vercel)
       if (selectedFundos.length > 0 && selectedEstilos.length > 0) {
         const total = Math.max(selectedFundos.length, selectedEstilos.length);
         const variations: { fundo: string; cor: string; estilo: string }[] = [];
@@ -201,64 +201,89 @@ export default function Home() {
         }
         const limited = variations.slice(0, 5);
 
-        for (let i = 0; i < limited.length; i++) {
-          const fundoLabel = FUNDOS.find(f => f.id === limited[i].fundo)?.label || limited[i].fundo;
-          const estiloLabel = ESTILOS.find(e => e.id === limited[i].estilo)?.label || limited[i].estilo;
-          setStep(`Gerando imagem ${i + 1} de ${limited.length} (${fundoLabel} + ${estiloLabel})...`);
+        // Pega a API key e os prompts do server
+        setStep("Preparando prompts...");
+        const promptRes = await fetch("/api/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productName: nome, variations: limited }),
+        });
+        const promptData = await promptRes.json();
+        if (promptData.error || !promptData.apiKey) {
+          setAlertas(prev => [...prev, `Erro preparando imagens: ${promptData.error || "GEMINI_API_KEY nao configurada"}`]);
+        } else {
+          const geminiModels = ["gemini-2.0-flash-preview-image-generation", "gemini-2.0-flash-exp-image-generation"];
 
-          try {
-            const imgRes = await fetch("/api/images", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                productImage: productImage || undefined,
-                productName: nome,
-                variations: [limited[i]],
-              }),
-            });
-            if (!imgRes.ok) {
-              const errText = await imgRes.text();
-              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): HTTP ${imgRes.status} - ${errText.substring(0, 100)}`]);
-              continue;
-            }
+          for (let i = 0; i < limited.length; i++) {
+            const fundoLabel = FUNDOS.find(f => f.id === limited[i].fundo)?.label || limited[i].fundo;
+            const estiloLabel = ESTILOS.find(e => e.id === limited[i].estilo)?.label || limited[i].estilo;
+            setStep(`Gerando imagem ${i + 1} de ${limited.length} (${fundoLabel} + ${estiloLabel})...`);
 
-            const imgData = await imgRes.json();
+            let generated = false;
 
-            if (imgData.error) {
-              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): ${imgData.error}`]);
-              continue;
-            }
-
-            if (imgData.errors?.length > 0) {
-              for (const e of imgData.errors) {
-                setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): ${e.substring(0, 120)}`]);
-              }
-            }
-
-            if (imgData.images?.[0]) {
-              let img = `data:image/png;base64,${imgData.images[0]}`;
-
-              if (removerFundoAuto) {
-                setStep(`Removendo fundo da imagem ${i + 1}...`);
-                try {
-                  const blob = await fetch(img).then(r => r.blob());
-                  const form = new FormData();
-                  form.append("image", blob, "img.png");
-                  const bgRes = await fetch("/api/remove-bg", { method: "POST", body: form });
-                  const bgData = await bgRes.json();
-                  if (bgData.image) img = bgData.image;
-                } catch {
-                  setAlertas(prev => [...prev, `Remover fundo ${i + 1}: falhou, usando original`]);
+            for (const modelName of geminiModels) {
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const contents: any[] = [{ text: promptData.prompts[i] }];
+                if (productImage) {
+                  contents.unshift({ inlineData: { data: productImage, mimeType: "image/png" } });
                 }
-              }
 
-              setGeneratedImages(prev => [...prev, { img, fundo: limited[i].fundo, estilo: limited[i].estilo }]);
-            } else {
-              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): API retornou vazio`]);
+                const geminiRes = await fetch(
+                  `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${promptData.apiKey}`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      contents: [{ parts: contents }],
+                      generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+                    }),
+                  }
+                );
+
+                if (!geminiRes.ok) {
+                  const errBody = await geminiRes.text();
+                  console.log(`${modelName}: HTTP ${geminiRes.status}`, errBody.substring(0, 200));
+                  continue; // tenta proximo modelo
+                }
+
+                const geminiData = await geminiRes.json();
+                const parts = geminiData.candidates?.[0]?.content?.parts || [];
+                const imgPart = parts.find((p: { inlineData?: { data: string } }) => p.inlineData?.data);
+
+                if (imgPart) {
+                  let img = `data:image/png;base64,${imgPart.inlineData.data}`;
+
+                  if (removerFundoAuto) {
+                    setStep(`Removendo fundo da imagem ${i + 1}...`);
+                    try {
+                      const blob = await fetch(img).then(r => r.blob());
+                      const form = new FormData();
+                      form.append("image", blob, "img.png");
+                      const bgRes = await fetch("/api/remove-bg", { method: "POST", body: form });
+                      const bgData = await bgRes.json();
+                      if (bgData.image) img = bgData.image;
+                    } catch {
+                      setAlertas(prev => [...prev, `Remover fundo ${i + 1}: falhou, usando original`]);
+                    }
+                  }
+
+                  setGeneratedImages(prev => [...prev, { img, fundo: limited[i].fundo, estilo: limited[i].estilo }]);
+                  generated = true;
+                  break; // sucesso, nao tenta proximo modelo
+                } else {
+                  console.log(`${modelName}: sem imagem na resposta`);
+                  continue;
+                }
+              } catch (err) {
+                console.log(`${modelName}: erro`, err);
+                continue;
+              }
             }
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : "falha na requisicao";
-            setAlertas(prev => [...prev, `Imagem ${i + 1}: ${msg}`]);
+
+            if (!generated) {
+              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): Falhou em todos os modelos. Verifique se sua API key tem acesso a geracao de imagens.`]);
+            }
           }
         }
       }
