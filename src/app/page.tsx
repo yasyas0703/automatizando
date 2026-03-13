@@ -223,71 +223,86 @@ export default function Home() {
             let generated = false;
             modelErrors.length = 0;
 
+            // Tenta cada modelo, com retry automático no 429
             for (const modelName of geminiModels) {
-              try {
-                setStep(`Gerando imagem ${i + 1} de ${limited.length} (${fundoLabel} + ${estiloLabel}) - tentando ${modelName}...`);
+              if (generated) break;
 
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const contents: any[] = [{ text: promptData.prompts[i] }];
-                if (productImage) {
-                  contents.unshift({ inlineData: { data: productImage, mimeType: "image/png" } });
-                }
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const contents: any[] = [{ text: promptData.prompts[i] }];
+              if (productImage) {
+                contents.unshift({ inlineData: { data: productImage, mimeType: "image/png" } });
+              }
 
-                const geminiRes = await fetch(
-                  `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${promptData.apiKey}`,
-                  {
+              const requestBody = JSON.stringify({
+                contents: [{ parts: contents }],
+                generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+              });
+              const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${promptData.apiKey}`;
+
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                  setStep(`Imagem ${i + 1}/${limited.length} (${fundoLabel} + ${estiloLabel}) — ${modelName}${attempt > 1 ? ` tentativa ${attempt}` : ""}...`);
+
+                  const res = await fetch(url, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      contents: [{ parts: contents }],
-                      generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
-                    }),
-                  }
-                );
+                    body: requestBody,
+                  });
 
-                if (!geminiRes.ok) {
-                  const errBody = await geminiRes.text();
-                  let errMsg = `HTTP ${geminiRes.status}`;
-                  try {
-                    const errJson = JSON.parse(errBody);
-                    errMsg += `: ${errJson.error?.message || errBody.substring(0, 100)}`;
-                  } catch { errMsg += `: ${errBody.substring(0, 100)}`; }
-                  modelErrors.push(`${modelName} -> ${errMsg}`);
-                  continue;
-                }
+                  const bodyText = await res.text();
 
-                const geminiData = await geminiRes.json();
-                const parts = geminiData.candidates?.[0]?.content?.parts || [];
-                const imgPart = parts.find((p: { inlineData?: { data: string } }) => p.inlineData?.data);
-
-                if (imgPart) {
-                  let img = `data:image/png;base64,${imgPart.inlineData.data}`;
-
-                  if (removerFundoAuto) {
-                    setStep(`Removendo fundo da imagem ${i + 1}...`);
-                    try {
-                      const blob = await fetch(img).then(r => r.blob());
-                      const form = new FormData();
-                      form.append("image", blob, "img.png");
-                      const bgRes = await fetch("/api/remove-bg", { method: "POST", body: form });
-                      const bgData = await bgRes.json();
-                      if (bgData.image) img = bgData.image;
-                    } catch {
-                      setAlertas(prev => [...prev, `Remover fundo ${i + 1}: falhou, usando original`]);
+                  if (res.status === 429) {
+                    const retryMatch = bodyText.match(/retry in (\d+)/i);
+                    const waitSecs = retryMatch ? Math.min(parseInt(retryMatch[1]) + 5, 65) : 55;
+                    if (attempt < 3) {
+                      setStep(`Imagem ${i + 1}: rate limit, aguardando ${waitSecs}s...`);
+                      await new Promise(r => setTimeout(r, waitSecs * 1000));
+                      continue; // retry mesmo modelo
                     }
+                    modelErrors.push(`${modelName} -> 429 rate limit (tentou ${attempt}x)`);
+                    break; // proximo modelo
                   }
 
-                  setGeneratedImages(prev => [...prev, { img, fundo: limited[i].fundo, estilo: limited[i].estilo }]);
-                  generated = true;
+                  if (!res.ok) {
+                    let errMsg = `HTTP ${res.status}`;
+                    try { errMsg += `: ${JSON.parse(bodyText).error?.message?.substring(0, 100)}`; } catch { errMsg += `: ${bodyText.substring(0, 80)}`; }
+                    modelErrors.push(`${modelName} -> ${errMsg}`);
+                    break; // proximo modelo (não retry em erros non-429)
+                  }
+
+                  const data = JSON.parse(bodyText);
+                  const parts = data.candidates?.[0]?.content?.parts || [];
+                  const imgPart = parts.find((p: { inlineData?: { data: string } }) => p.inlineData?.data);
+
+                  if (imgPart) {
+                    let img = `data:image/png;base64,${imgPart.inlineData.data}`;
+
+                    if (removerFundoAuto) {
+                      setStep(`Removendo fundo da imagem ${i + 1}...`);
+                      try {
+                        const blob = await fetch(img).then(r => r.blob());
+                        const form = new FormData();
+                        form.append("image", blob, "img.png");
+                        const bgRes = await fetch("/api/remove-bg", { method: "POST", body: form });
+                        const bgData = await bgRes.json();
+                        if (bgData.image) img = bgData.image;
+                      } catch {
+                        setAlertas(prev => [...prev, `Remover fundo ${i + 1}: falhou, usando original`]);
+                      }
+                    }
+
+                    setGeneratedImages(prev => [...prev, { img, fundo: limited[i].fundo, estilo: limited[i].estilo }]);
+                    generated = true;
+                    break; // sucesso!
+                  } else {
+                    const reason = data.candidates?.[0]?.finishReason || "resposta sem imagem";
+                    modelErrors.push(`${modelName} -> ${reason}`);
+                    break; // proximo modelo
+                  }
+                } catch (err) {
+                  modelErrors.push(`${modelName} -> ${err instanceof Error ? err.message : "erro de rede"}`);
                   break;
-                } else {
-                  const reason = geminiData.candidates?.[0]?.finishReason || "sem imagem";
-                  modelErrors.push(`${modelName} -> ${reason}`);
-                  continue;
                 }
-              } catch (err) {
-                modelErrors.push(`${modelName} -> ${err instanceof Error ? err.message : "erro"}`);
-                continue;
               }
             }
 
