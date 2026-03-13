@@ -212,7 +212,8 @@ export default function Home() {
         if (promptData.error || !promptData.apiKey) {
           setAlertas(prev => [...prev, `Erro preparando imagens: ${promptData.error || "GEMINI_API_KEY nao configurada"}`]);
         } else {
-          const geminiModels = ["gemini-2.0-flash-preview-image-generation", "gemini-2.0-flash-exp-image-generation"];
+          const geminiModels = ["gemini-2.0-flash-preview-image-generation", "gemini-2.0-flash-exp-image-generation", "gemini-2.0-flash-exp"];
+          const modelErrors: string[] = [];
 
           for (let i = 0; i < limited.length; i++) {
             const fundoLabel = FUNDOS.find(f => f.id === limited[i].fundo)?.label || limited[i].fundo;
@@ -220,9 +221,12 @@ export default function Home() {
             setStep(`Gerando imagem ${i + 1} de ${limited.length} (${fundoLabel} + ${estiloLabel})...`);
 
             let generated = false;
+            modelErrors.length = 0;
 
             for (const modelName of geminiModels) {
               try {
+                setStep(`Gerando imagem ${i + 1} de ${limited.length} (${fundoLabel} + ${estiloLabel}) - tentando ${modelName}...`);
+
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const contents: any[] = [{ text: promptData.prompts[i] }];
                 if (productImage) {
@@ -243,8 +247,13 @@ export default function Home() {
 
                 if (!geminiRes.ok) {
                   const errBody = await geminiRes.text();
-                  console.log(`${modelName}: HTTP ${geminiRes.status}`, errBody.substring(0, 200));
-                  continue; // tenta proximo modelo
+                  let errMsg = `HTTP ${geminiRes.status}`;
+                  try {
+                    const errJson = JSON.parse(errBody);
+                    errMsg += `: ${errJson.error?.message || errBody.substring(0, 100)}`;
+                  } catch { errMsg += `: ${errBody.substring(0, 100)}`; }
+                  modelErrors.push(`${modelName} -> ${errMsg}`);
+                  continue;
                 }
 
                 const geminiData = await geminiRes.json();
@@ -270,19 +279,20 @@ export default function Home() {
 
                   setGeneratedImages(prev => [...prev, { img, fundo: limited[i].fundo, estilo: limited[i].estilo }]);
                   generated = true;
-                  break; // sucesso, nao tenta proximo modelo
+                  break;
                 } else {
-                  console.log(`${modelName}: sem imagem na resposta`);
+                  const reason = geminiData.candidates?.[0]?.finishReason || "sem imagem";
+                  modelErrors.push(`${modelName} -> ${reason}`);
                   continue;
                 }
               } catch (err) {
-                console.log(`${modelName}: erro`, err);
+                modelErrors.push(`${modelName} -> ${err instanceof Error ? err.message : "erro"}`);
                 continue;
               }
             }
 
             if (!generated) {
-              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): Falhou em todos os modelos. Verifique se sua API key tem acesso a geracao de imagens.`]);
+              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): ${modelErrors.join(" | ")}`]);
             }
           }
         }
