@@ -55,7 +55,7 @@ export async function generateImage(
   mimeType: string = "image/png"
 ): Promise<string> {
   // Modelos de imagem em ordem de prioridade
-  const models = ["gemini-2.0-flash-exp", "gemini-2.0-flash"];
+  const models = ["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"];
   const erros: string[] = [];
 
   for (const modelName of models) {

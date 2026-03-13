@@ -212,7 +212,7 @@ export default function Home() {
         if (promptData.error || !promptData.apiKey) {
           setAlertas(prev => [...prev, `Erro preparando imagens: ${promptData.error || "GEMINI_API_KEY nao configurada"}`]);
         } else {
-          const geminiModels = ["gemini-2.0-flash-preview-image-generation", "gemini-2.0-flash-exp-image-generation", "gemini-2.0-flash-exp"];
+          const geminiModels = ["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"];
           const modelErrors: string[] = [];
 
           for (let i = 0; i < limited.length; i++) {
