@@ -212,102 +212,95 @@ export default function Home() {
         if (promptData.error || !promptData.apiKey) {
           setAlertas(prev => [...prev, `Erro preparando imagens: ${promptData.error || "GEMINI_API_KEY nao configurada"}`]);
         } else {
-          const geminiModels = ["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"];
-          const modelErrors: string[] = [];
+          const MODEL = "gemini-2.5-flash-image";
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${promptData.apiKey}`;
+
+          // Helper: countdown visível
+          const countdown = async (secs: number, msg: string) => {
+            for (let s = secs; s > 0; s--) {
+              setStep(`${msg} (${s}s)`);
+              await new Promise(r => setTimeout(r, 1000));
+            }
+          };
 
           for (let i = 0; i < limited.length; i++) {
             const fundoLabel = FUNDOS.find(f => f.id === limited[i].fundo)?.label || limited[i].fundo;
             const estiloLabel = ESTILOS.find(e => e.id === limited[i].estilo)?.label || limited[i].estilo;
-            setStep(`Gerando imagem ${i + 1} de ${limited.length} (${fundoLabel} + ${estiloLabel})...`);
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const parts: any[] = [{ text: promptData.prompts[i] }];
+            if (productImage) {
+              parts.unshift({ inlineData: { data: productImage, mimeType: "image/png" } });
+            }
+            const reqBody = JSON.stringify({
+              contents: [{ parts }],
+              generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+            });
 
             let generated = false;
-            modelErrors.length = 0;
 
-            // Tenta cada modelo, com retry automático no 429
-            for (const modelName of geminiModels) {
-              if (generated) break;
+            // Tenta até 3x com espera no 429
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                setStep(`Gerando imagem ${i + 1}/${limited.length} (${fundoLabel} + ${estiloLabel})${attempt > 1 ? ` — tentativa ${attempt}` : ""}`);
 
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const contents: any[] = [{ text: promptData.prompts[i] }];
-              if (productImage) {
-                contents.unshift({ inlineData: { data: productImage, mimeType: "image/png" } });
-              }
+                const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody });
+                const txt = await res.text();
 
-              const requestBody = JSON.stringify({
-                contents: [{ parts: contents }],
-                generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
-              });
-              const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${promptData.apiKey}`;
-
-              for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                  setStep(`Imagem ${i + 1}/${limited.length} (${fundoLabel} + ${estiloLabel}) — ${modelName}${attempt > 1 ? ` tentativa ${attempt}` : ""}...`);
-
-                  const res = await fetch(url, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: requestBody,
-                  });
-
-                  const bodyText = await res.text();
-
-                  if (res.status === 429) {
-                    const retryMatch = bodyText.match(/retry in (\d+)/i);
-                    const waitSecs = retryMatch ? Math.min(parseInt(retryMatch[1]) + 5, 65) : 55;
-                    if (attempt < 3) {
-                      setStep(`Imagem ${i + 1}: rate limit, aguardando ${waitSecs}s...`);
-                      await new Promise(r => setTimeout(r, waitSecs * 1000));
-                      continue; // retry mesmo modelo
-                    }
-                    modelErrors.push(`${modelName} -> 429 rate limit (tentou ${attempt}x)`);
-                    break; // proximo modelo
+                if (res.status === 429) {
+                  if (attempt < 3) {
+                    const m = txt.match(/retry in (\d+)/i);
+                    const wait = m ? parseInt(m[1]) + 3 : 30;
+                    await countdown(Math.min(wait, 65), `Imagem ${i + 1}: rate limit, aguardando`);
+                    continue;
                   }
-
-                  if (!res.ok) {
-                    let errMsg = `HTTP ${res.status}`;
-                    try { errMsg += `: ${JSON.parse(bodyText).error?.message?.substring(0, 100)}`; } catch { errMsg += `: ${bodyText.substring(0, 80)}`; }
-                    modelErrors.push(`${modelName} -> ${errMsg}`);
-                    break; // proximo modelo (não retry em erros non-429)
-                  }
-
-                  const data = JSON.parse(bodyText);
-                  const parts = data.candidates?.[0]?.content?.parts || [];
-                  const imgPart = parts.find((p: { inlineData?: { data: string } }) => p.inlineData?.data);
-
-                  if (imgPart) {
-                    let img = `data:image/png;base64,${imgPart.inlineData.data}`;
-
-                    if (removerFundoAuto) {
-                      setStep(`Removendo fundo da imagem ${i + 1}...`);
-                      try {
-                        const blob = await fetch(img).then(r => r.blob());
-                        const form = new FormData();
-                        form.append("image", blob, "img.png");
-                        const bgRes = await fetch("/api/remove-bg", { method: "POST", body: form });
-                        const bgData = await bgRes.json();
-                        if (bgData.image) img = bgData.image;
-                      } catch {
-                        setAlertas(prev => [...prev, `Remover fundo ${i + 1}: falhou, usando original`]);
-                      }
-                    }
-
-                    setGeneratedImages(prev => [...prev, { img, fundo: limited[i].fundo, estilo: limited[i].estilo }]);
-                    generated = true;
-                    break; // sucesso!
-                  } else {
-                    const reason = data.candidates?.[0]?.finishReason || "resposta sem imagem";
-                    modelErrors.push(`${modelName} -> ${reason}`);
-                    break; // proximo modelo
-                  }
-                } catch (err) {
-                  modelErrors.push(`${modelName} -> ${err instanceof Error ? err.message : "erro de rede"}`);
+                  setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): rate limit persistente. Tente gerar menos imagens por vez.`]);
                   break;
                 }
+
+                if (!res.ok) {
+                  let msg = `HTTP ${res.status}`;
+                  try { msg += `: ${JSON.parse(txt).error?.message?.substring(0, 80)}`; } catch { /* */ }
+                  setAlertas(prev => [...prev, `Imagem ${i + 1}: ${msg}`]);
+                  break;
+                }
+
+                const data = JSON.parse(txt);
+                const imgPart = (data.candidates?.[0]?.content?.parts || [])
+                  .find((p: { inlineData?: { data: string } }) => p.inlineData?.data);
+
+                if (imgPart) {
+                  let img = `data:image/png;base64,${imgPart.inlineData.data}`;
+
+                  if (removerFundoAuto) {
+                    setStep(`Removendo fundo da imagem ${i + 1}...`);
+                    try {
+                      const blob = await fetch(img).then(r => r.blob());
+                      const form = new FormData();
+                      form.append("image", blob, "img.png");
+                      const bgRes = await fetch("/api/remove-bg", { method: "POST", body: form });
+                      const bgData = await bgRes.json();
+                      if (bgData.image) img = bgData.image;
+                    } catch {
+                      setAlertas(prev => [...prev, `Remover fundo ${i + 1}: falhou, usando original`]);
+                    }
+                  }
+
+                  setGeneratedImages(prev => [...prev, { img, fundo: limited[i].fundo, estilo: limited[i].estilo }]);
+                  generated = true;
+                } else {
+                  setAlertas(prev => [...prev, `Imagem ${i + 1}: modelo nao retornou imagem`]);
+                }
+                break;
+              } catch (err) {
+                setAlertas(prev => [...prev, `Imagem ${i + 1}: ${err instanceof Error ? err.message : "erro de rede"}`]);
+                break;
               }
             }
 
-            if (!generated) {
-              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): ${modelErrors.join(" | ")}`]);
+            // Espera entre imagens pra evitar rate limit na proxima
+            if (generated && i < limited.length - 1) {
+              await countdown(15, `Imagem ${i + 1} gerada! Proxima em`);
             }
           }
         }
