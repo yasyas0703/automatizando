@@ -5,7 +5,6 @@ import {
   CATEGORIAS,
   MATERIAIS,
   CORES,
-  TEMPLATES_PACOTE,
   VARIACOES_SAQUINHO,
 } from "@/lib/types";
 
@@ -72,7 +71,6 @@ export default function Home() {
   const [pesoGramas, setPesoGramas] = useState<number>(0);
   const [tempoImpressao, setTempoImpressao] = useState<number>(0);
   const [categoria, setCategoria] = useState("Decoração");
-  const [templatePacote, setTemplatePacote] = useState<"pequeno" | "medio" | "grande">("medio");
   const [saquinho, setSaquinho] = useState("15x20");
 
   // Imagens config
@@ -84,7 +82,7 @@ export default function Home() {
   // Resultados
   const [generatedImages, setGeneratedImages] = useState<{img: string; fundo: string; estilo: string}[]>([]);
   const [conteudo, setConteudo] = useState<GeneratedData | null>(null);
-  const [preco, setPreco] = useState<{ custoMaterial: number; custoEmbalagem: number; custoTotal: number; taxaPlataforma: number; precoVenda: number; lucro: number } | null>(null);
+  const [preco, setPreco] = useState<{ custoBase: number; preco50: number; preco70: number; precoMinimo: number } | null>(null);
 
   // ML
   const [mlConnected, setMlConnected] = useState(false);
@@ -107,11 +105,15 @@ export default function Home() {
   // Calcula preço em tempo real
   const custoMaterial = (pesoGramas / 1000) * 99;
   const custoEmbalagem = 3;
-  const custoTotal = custoMaterial + custoEmbalagem;
-  const precoVenda = (custoTotal * 1.65) / 0.80;
-  const taxaPlataforma = precoVenda * 0.20;
-  const lucro = precoVenda - custoTotal - taxaPlataforma;
-  const lucroPorHora = tempoImpressao > 0 ? lucro / tempoImpressao : 0;
+  const taxaFixaShopee = 4;
+  const custoBase = custoMaterial + custoEmbalagem + taxaFixaShopee;
+  const lucro50 = custoBase * 0.50;
+  const lucro70 = custoBase * 0.70;
+  const preco50 = (custoBase + lucro50) / 0.75; // 25% taxas (20% comissão + 5% ADS)
+  const preco70 = (custoBase + lucro70) / 0.75;
+  const precoMinimo = custoBase / 0.75;
+  const lucroPorHora50 = tempoImpressao > 0 ? lucro50 / tempoImpressao : 0;
+  const lucroPorHora70 = tempoImpressao > 0 ? lucro70 / tempoImpressao : 0;
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -176,7 +178,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nome, material, cor, tamanho: `${alturaZ}x${larguraX}x${profundidadeY}cm (AxLxP)`, categoria, pesoGramas,
-          precoVenda: precoData.precoVenda,
+          precoVenda: precoData.preco70,
           productImage: productImage || undefined,
         }),
       });
@@ -346,10 +348,9 @@ export default function Home() {
           body: JSON.stringify({
             titulo,
             descricao: conteudo.descricao,
-            preco: preco.precoVenda,
+            preco: preco.preco70,
             pesoGramas,
             categoria,
-            dimensoes: TEMPLATES_PACOTE[templatePacote],
             imagens: generatedImages.map(g => g.img).filter(img => img.startsWith("http")),
           }),
         });
@@ -363,9 +364,9 @@ export default function Home() {
       } else {
         // Shopee e TikTok: por enquanto exporta JSON
         const data = {
-          titulo, descricao: conteudo.descricao, preco: preco.precoVenda,
+          titulo, descricao: conteudo.descricao, preco: preco.preco70,
           peso: pesoGramas, tags: conteudo.tags || [],
-          dimensoes: TEMPLATES_PACOTE[templatePacote], material, cor,
+          material, cor,
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
@@ -386,8 +387,6 @@ export default function Home() {
       setPublishing(null);
     }
   };
-
-  const dimensoes = TEMPLATES_PACOTE[templatePacote];
 
   return (
     <div className="space-y-6">
@@ -448,14 +447,6 @@ export default function Home() {
               <select value={categoria} onChange={e => setCategoria(e.target.value)} className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500">
                 {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
               </select>
-              <select value={templatePacote} onChange={e => setTemplatePacote(e.target.value as "pequeno" | "medio" | "grande")} className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500">
-                {(["pequeno", "medio", "grande"] as const).map(t => {
-                  const d = TEMPLATES_PACOTE[t];
-                  return <option key={t} value={t}>{t} ({d.largura}x{d.altura}x{d.profundidade})</option>;
-                })}
-              </select>
-            </div>
-            <div className="grid grid-cols-1 gap-2">
               <select value={saquinho} onChange={e => setSaquinho(e.target.value)} className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500">
                 {VARIACOES_SAQUINHO.map(s => <option key={s.id} value={s.id}>Saquinho {s.label}</option>)}
               </select>
@@ -468,53 +459,78 @@ export default function Home() {
           <h2 className="font-bold mb-3">Preco (automatico)</h2>
           {pesoGramas > 0 ? (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-zinc-800 rounded-lg p-3 text-center">
+              {/* Custos */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-zinc-800 rounded-lg p-2 text-center">
                   <div className="text-[10px] text-zinc-500">FILAMENTO</div>
-                  <div className="text-lg font-bold text-red-400">R$ {custoMaterial.toFixed(2)}</div>
+                  <div className="text-sm font-bold text-red-400">R$ {custoMaterial.toFixed(2)}</div>
                 </div>
-                <div className="bg-zinc-800 rounded-lg p-3 text-center">
+                <div className="bg-zinc-800 rounded-lg p-2 text-center">
                   <div className="text-[10px] text-zinc-500">EMBALAGEM</div>
-                  <div className="text-lg font-bold text-red-400">R$ {custoEmbalagem.toFixed(2)}</div>
+                  <div className="text-sm font-bold text-red-400">R$ {custoEmbalagem.toFixed(2)}</div>
+                </div>
+                <div className="bg-zinc-800 rounded-lg p-2 text-center">
+                  <div className="text-[10px] text-zinc-500">TAXA FIXA</div>
+                  <div className="text-sm font-bold text-red-400">R$ {taxaFixaShopee.toFixed(2)}</div>
                 </div>
               </div>
+              <div className="bg-zinc-800 rounded-lg p-2 text-center">
+                <div className="text-[10px] text-zinc-500">CUSTO BASE (filamento + embalagem + taxa fixa)</div>
+                <div className="text-lg font-bold text-orange-400">R$ {custoBase.toFixed(2)}</div>
+              </div>
+
+              {/* Preço mínimo */}
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-2 text-center">
+                <div className="text-[10px] text-red-400">MINIMO (0 a 0) - abaixo disso = prejuizo</div>
+                <div className="text-lg font-bold text-red-400">R$ {precoMinimo.toFixed(2)}</div>
+              </div>
+
+              {/* Faixa de preço */}
               <div className="grid grid-cols-2 gap-2">
-                <div className="bg-zinc-800 rounded-lg p-3 text-center">
-                  <div className="text-[10px] text-zinc-500">CUSTO TOTAL</div>
-                  <div className="text-lg font-bold text-orange-400">R$ {custoTotal.toFixed(2)}</div>
+                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 text-center">
+                  <div className="text-[10px] text-yellow-400">PRECO 50% LUCRO</div>
+                  <div className="text-xl font-bold text-yellow-400">R$ {preco50.toFixed(2)}</div>
+                  <div className="text-[10px] text-yellow-400/70 mt-1">lucro R$ {lucro50.toFixed(2)}</div>
                 </div>
-                <div className="bg-zinc-800 rounded-lg p-3 text-center">
-                  <div className="text-[10px] text-zinc-500">TAXA PLATAFORMA (20%)</div>
-                  <div className="text-lg font-bold text-yellow-400">R$ {taxaPlataforma.toFixed(2)}</div>
-                </div>
-              </div>
-              <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-center">
-                <div className="text-[10px] text-green-400">PRECO DE VENDA</div>
-                <div className="text-xl font-bold text-green-400">R$ {precoVenda.toFixed(2)}</div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 text-center">
-                  <div className="text-[10px] text-violet-400">LUCRO (65%)</div>
-                  <div className="text-xl font-bold text-violet-400">R$ {lucro.toFixed(2)}</div>
-                </div>
-                <div className={`rounded-lg p-3 text-center border ${tempoImpressao > 0 && lucroPorHora < 3 ? "bg-red-500/10 border-red-500/20" : tempoImpressao > 0 && lucroPorHora < 5 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-emerald-500/10 border-emerald-500/20"}`}>
-                  <div className="text-[10px] text-zinc-400">LUCRO/HORA</div>
-                  {tempoImpressao > 0 ? (
-                    <>
-                      <div className={`text-xl font-bold ${lucroPorHora < 3 ? "text-red-400" : lucroPorHora < 5 ? "text-yellow-400" : "text-emerald-400"}`}>
-                        R$ {lucroPorHora.toFixed(2)}/h
-                      </div>
-                      <div className={`text-[10px] mt-1 ${lucroPorHora < 3 ? "text-red-400" : lucroPorHora < 5 ? "text-yellow-400" : "text-emerald-400"}`}>
-                        {lucroPorHora < 3 ? "NAO COMPENSA" : lucroPorHora < 5 ? "AVALIE BEM" : "VALE A PENA"}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-sm text-zinc-600">Informe as horas</div>
-                  )}
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-center">
+                  <div className="text-[10px] text-green-400">PRECO 70% LUCRO</div>
+                  <div className="text-xl font-bold text-green-400">R$ {preco70.toFixed(2)}</div>
+                  <div className="text-[10px] text-green-400/70 mt-1">lucro R$ {lucro70.toFixed(2)}</div>
                 </div>
               </div>
+
+              {/* Faixa recomendada */}
+              <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 text-center">
+                <div className="text-[10px] text-violet-400">FAIXA RECOMENDADA</div>
+                <div className="text-xl font-bold text-violet-400">R$ {preco50.toFixed(2)} ~ R$ {preco70.toFixed(2)}</div>
+              </div>
+
+              {/* Lucro por hora */}
+              {tempoImpressao > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className={`rounded-lg p-2 text-center border ${lucroPorHora50 < 3 ? "bg-red-500/10 border-red-500/20" : lucroPorHora50 < 5 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-emerald-500/10 border-emerald-500/20"}`}>
+                    <div className="text-[10px] text-zinc-400">LUCRO/HORA (50%)</div>
+                    <div className={`text-lg font-bold ${lucroPorHora50 < 3 ? "text-red-400" : lucroPorHora50 < 5 ? "text-yellow-400" : "text-emerald-400"}`}>
+                      R$ {lucroPorHora50.toFixed(2)}/h
+                    </div>
+                    <div className={`text-[9px] ${lucroPorHora50 < 3 ? "text-red-400" : lucroPorHora50 < 5 ? "text-yellow-400" : "text-emerald-400"}`}>
+                      {lucroPorHora50 < 3 ? "NAO COMPENSA" : lucroPorHora50 < 5 ? "AVALIE BEM" : "VALE A PENA"}
+                    </div>
+                  </div>
+                  <div className={`rounded-lg p-2 text-center border ${lucroPorHora70 < 3 ? "bg-red-500/10 border-red-500/20" : lucroPorHora70 < 5 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-emerald-500/10 border-emerald-500/20"}`}>
+                    <div className="text-[10px] text-zinc-400">LUCRO/HORA (70%)</div>
+                    <div className={`text-lg font-bold ${lucroPorHora70 < 3 ? "text-red-400" : lucroPorHora70 < 5 ? "text-yellow-400" : "text-emerald-400"}`}>
+                      R$ {lucroPorHora70.toFixed(2)}/h
+                    </div>
+                    <div className={`text-[9px] ${lucroPorHora70 < 3 ? "text-red-400" : lucroPorHora70 < 5 ? "text-yellow-400" : "text-emerald-400"}`}>
+                      {lucroPorHora70 < 3 ? "NAO COMPENSA" : lucroPorHora70 < 5 ? "AVALIE BEM" : "VALE A PENA"}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="text-[10px] text-zinc-500 text-center">
-                {pesoGramas}g | R$99/kg | Embalagem R$3 | Plataforma 20%{tempoImpressao > 0 ? ` | ${tempoImpressao}h impressao` : ""} | Saquinho: {saquinho}
+                {pesoGramas}g | R$99/kg | Embalagem R$3 | Taxa fixa R$4 | Comissao 20% + ADS 5%{tempoImpressao > 0 ? ` | ${tempoImpressao}h` : ""} | Saquinho: {saquinho}
               </div>
             </div>
           ) : (

@@ -59,6 +59,8 @@ PRODUTO:
 - Peso: ${pesoGramas}g
 - Preço: R$ ${precoVenda || "não informado"}
 
+REGRA CRÍTICA: NUNCA mencione "impressão 3D", "impresso em 3D", "3D printed", "fabricação 3D", "manufatura aditiva" ou qualquer referência ao processo de fabricação. Trate o produto como se fosse fabricado industrialmente. No material, mencione apenas "${material}" sem associar a impressão 3D.
+
 Retorne APENAS JSON válido. Use \\n para quebras de linha dentro das strings. SEM markdown.
 
 {
@@ -70,29 +72,31 @@ Retorne APENAS JSON válido. Use \\n para quebras de linha dentro das strings. S
 }
 
 REGRAS PARA TITULOS:
-- Shopee: use TODAS as palavras-chave possíveis, capitalize cada palavra. Ex: "Dragão Articulado Flexível Impressão 3D Decoração Geek Presente Criativo"
-- Mercado Livre: mais curto e direto, profissional. Ex: "Dragão Articulado 3D Flexível 20cm Decorativo"
-- TikTok: jovem, com emojis, chamativo. Ex: "Dragão Articulado que Mexe de Verdade 🐉 Impressão 3D"
+- Shopee: use TODAS as palavras-chave possíveis, capitalize cada palavra. Ex: "Dragão Articulado Flexível Decoração Geek Presente Criativo"
+- Mercado Livre: mais curto e direto, profissional. Ex: "Dragão Articulado Flexível 20cm Decorativo"
+- TikTok: jovem, com emojis, chamativo. Ex: "Dragão Articulado que Mexe de Verdade 🐉 Super Detalhado"
 
 REGRAS PARA DESCRIÇÃO (MUITO IMPORTANTE - faça LONGA e COMPLETA):
 A descrição deve ter NO MÍNIMO 800 caracteres e incluir TODAS estas seções separadas por \\n\\n:
 
 1. ABERTURA CHAMATIVA (2-3 linhas vendedoras com emojis)
 2. SOBRE O PRODUTO (parágrafo detalhado explicando o que é, pra que serve, porque é especial)
-3. CARACTERÍSTICAS com bullets usando ✅:\\n✅ Material: ${material} de alta qualidade\\n✅ Cor: ${cor}\\n✅ Tamanho: ${tamanho || "consulte"}\\n✅ Peso: ${pesoGramas}g\\n✅ Acabamento premium\\n✅ Produção artesanal
+3. CARACTERÍSTICAS com bullets usando ✅:\\n✅ Material: ${material} de alta qualidade\\n✅ Cor: ${cor}\\n✅ Tamanho: ${tamanho || "consulte"}\\n✅ Peso: ${pesoGramas}g\\n✅ Acabamento premium\\n✅ Produto exclusivo
 4. BENEFÍCIOS com bullets usando ⭐:\\n⭐ Presente perfeito\\n⭐ Decoração única\\n⭐ Produto exclusivo\\n⭐ Qualidade garantida
 5. INFORMAÇÕES DE ENVIO: 📦 Enviamos para todo Brasil\\nProduto bem embalado com proteção
-6. AVISO: ⚠️ Por ser produção artesanal em impressão 3D, pequenas variações são normais e tornam cada peça única.
-7. HASHTAGS: #impressao3d #decoracao #geek #presente #artesanal
+6. AVISO: ⚠️ Pequenas variações de cor podem ocorrer devido à iluminação do monitor.
+7. HASHTAGS: #decoracao #geek #presente #nerd #colecao
 
 REGRAS PARA TAGS:
 - 10 tags relevantes para busca
-- Inclua: nome do produto, impressão 3D, decoração, presente, a categoria, material, geek, artesanal, etc.`;
+- Inclua: nome do produto, decoração, presente, a categoria, geek, nerd, colecionavel, etc.
+- NÃO use tags com "impressão 3D" ou "3D"`;
+
 
     let text: string;
 
     if (productImage) {
-      const visionPrompt = `Analise esta foto de um produto de impressão 3D. Identifique o que é, suas características visuais, cores, detalhes. Depois use essa análise para:\n\n${prompt}`;
+      const visionPrompt = `Analise esta foto de um produto decorativo. Identifique o que é, suas características visuais, cores, detalhes. Depois use essa análise para:\n\n${prompt}`;
       try {
         text = await generateFromImage(visionPrompt, productImage, "image/png");
       } catch {

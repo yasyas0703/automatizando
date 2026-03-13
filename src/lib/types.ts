@@ -6,16 +6,18 @@ export interface ProductForm {
   pesoGramas: number;
   categoria: string;
   estiloImagem: string;
-  templatePacote: "pequeno" | "medio" | "grande";
 }
 
 export interface PriceCalculation {
   custoMaterial: number;
   custoEmbalagem: number;
-  custoTotal: number;
-  taxaPlataforma: number;
-  lucro: number;
-  precoVenda: number;
+  taxaFixaShopee: number;
+  custoBase: number;
+  preco50: number;
+  preco70: number;
+  lucro50: number;
+  lucro70: number;
+  precoMinimo: number;
   pesoKg: number;
 }
 
@@ -25,7 +27,6 @@ export interface GeneratedProduct {
   tags: string[];
   preco: PriceCalculation;
   imagens: string[]; // base64 or URLs
-  dimensoesPacote: { largura: number; altura: number; profundidade: number };
 }
 
 export const CATEGORIAS = [
@@ -65,12 +66,6 @@ export const ESTILOS_IMAGEM = [
   "Fundo gradiente",
   "Minimalista",
 ];
-
-export const TEMPLATES_PACOTE = {
-  pequeno: { largura: 20, altura: 15, profundidade: 10 },
-  medio: { largura: 25, altura: 20, profundidade: 15 },
-  grande: { largura: 30, altura: 25, profundidade: 20 },
-};
 
 export const VARIACOES_SAQUINHO = [
   { id: "15x20", label: "15x20" },
