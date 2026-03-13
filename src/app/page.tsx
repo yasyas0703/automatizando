@@ -79,10 +79,10 @@ export default function Home() {
   const [selectedFundos, setSelectedFundos] = useState<string[]>(["branco"]);
   const [selectedEstilos, setSelectedEstilos] = useState<string[]>(["principal"]);
   const [corImagem, setCorImagem] = useState("original");
-  const [removerFundoAuto, setRemoverFundoAuto] = useState(true);
+  const [removerFundoAuto, setRemoverFundoAuto] = useState(false);
 
   // Resultados
-  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const [generatedImages, setGeneratedImages] = useState<{img: string; fundo: string; estilo: string}[]>([]);
   const [conteudo, setConteudo] = useState<GeneratedData | null>(null);
   const [preco, setPreco] = useState<{ custoMaterial: number; custoEmbalagem: number; custoTotal: number; taxaPlataforma: number; precoVenda: number; lucro: number } | null>(null);
 
@@ -96,6 +96,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState("");
   const [copied, setCopied] = useState("");
+  const [alertas, setAlertas] = useState<string[]>([]);
 
   useEffect(() => {
     fetch("/api/ml/status").then(r => r.json()).then(d => {
@@ -155,6 +156,7 @@ export default function Home() {
     setConteudo(null);
     setPreco(null);
     setPublishResult([]);
+    setAlertas([]);
 
     try {
       // 1. Preço
@@ -186,18 +188,23 @@ export default function Home() {
       }
       setConteudo(genData);
 
-      // 3. Imagens
+      // 3. Imagens — pareamento 1:1 (fundo[0]+estilo[0], fundo[1]+estilo[1], ...)
       if (selectedFundos.length > 0 && selectedEstilos.length > 0) {
+        const total = Math.max(selectedFundos.length, selectedEstilos.length);
         const variations: { fundo: string; cor: string; estilo: string }[] = [];
-        for (const fundo of selectedFundos) {
-          for (const estilo of selectedEstilos) {
-            variations.push({ fundo, cor: corImagem, estilo });
-          }
+        for (let i = 0; i < total; i++) {
+          variations.push({
+            fundo: selectedFundos[i % selectedFundos.length],
+            cor: corImagem,
+            estilo: selectedEstilos[i % selectedEstilos.length],
+          });
         }
         const limited = variations.slice(0, 5);
 
         for (let i = 0; i < limited.length; i++) {
-          setStep(`Gerando imagem ${i + 1} de ${limited.length}...`);
+          const fundoLabel = FUNDOS.find(f => f.id === limited[i].fundo)?.label || limited[i].fundo;
+          const estiloLabel = ESTILOS.find(e => e.id === limited[i].estilo)?.label || limited[i].estilo;
+          setStep(`Gerando imagem ${i + 1} de ${limited.length} (${fundoLabel} + ${estiloLabel})...`);
 
           try {
             const imgRes = await fetch("/api/images", {
@@ -209,7 +216,24 @@ export default function Home() {
                 variations: [limited[i]],
               }),
             });
+            if (!imgRes.ok) {
+              const errText = await imgRes.text();
+              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): HTTP ${imgRes.status} - ${errText.substring(0, 100)}`]);
+              continue;
+            }
+
             const imgData = await imgRes.json();
+
+            if (imgData.error) {
+              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): ${imgData.error}`]);
+              continue;
+            }
+
+            if (imgData.errors?.length > 0) {
+              for (const e of imgData.errors) {
+                setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): ${e.substring(0, 120)}`]);
+              }
+            }
 
             if (imgData.images?.[0]) {
               let img = `data:image/png;base64,${imgData.images[0]}`;
@@ -223,13 +247,18 @@ export default function Home() {
                   const bgRes = await fetch("/api/remove-bg", { method: "POST", body: form });
                   const bgData = await bgRes.json();
                   if (bgData.image) img = bgData.image;
-                } catch { /* keep original */ }
+                } catch {
+                  setAlertas(prev => [...prev, `Remover fundo ${i + 1}: falhou, usando original`]);
+                }
               }
 
-              setGeneratedImages(prev => [...prev, img]);
+              setGeneratedImages(prev => [...prev, { img, fundo: limited[i].fundo, estilo: limited[i].estilo }]);
+            } else {
+              setAlertas(prev => [...prev, `Imagem ${i + 1} (${fundoLabel} + ${estiloLabel}): API retornou vazio`]);
             }
           } catch (err) {
-            console.error("Erro imagem", i, err);
+            const msg = err instanceof Error ? err.message : "falha na requisicao";
+            setAlertas(prev => [...prev, `Imagem ${i + 1}: ${msg}`]);
           }
         }
       }
@@ -237,7 +266,9 @@ export default function Home() {
       setStep("Pronto!");
     } catch (error) {
       console.error(error);
+      const msg = error instanceof Error ? error.message : "Erro desconhecido";
       setStep("Erro. Tente novamente.");
+      setAlertas(prev => [...prev, `Erro geral: ${msg}`]);
     } finally {
       setLoading(false);
     }
@@ -276,7 +307,7 @@ export default function Home() {
             pesoGramas,
             categoria,
             dimensoes: TEMPLATES_PACOTE[templatePacote],
-            imagens: generatedImages.filter(img => img.startsWith("http")),
+            imagens: generatedImages.map(g => g.img).filter(img => img.startsWith("http")),
           }),
         });
         const result = await res.json();
@@ -513,9 +544,28 @@ export default function Home() {
                 className="w-3.5 h-3.5 accent-violet-500" />
               <span className="text-xs text-zinc-300">Remover fundo (Remove.bg)</span>
             </label>
-            <div className="bg-zinc-800 rounded p-2 text-[10px] text-zinc-500">
-              {selectedFundos.length} x {selectedEstilos.length} = {selectedFundos.length * selectedEstilos.length} combinacoes
-              {selectedFundos.length * selectedEstilos.length > 5 && <span className="text-amber-400 ml-1">(max 5)</span>}
+            <div className="bg-zinc-800 rounded p-2 text-[10px] text-zinc-500 space-y-1">
+              <div className="font-bold text-zinc-400">{Math.min(Math.max(selectedFundos.length, selectedEstilos.length), 5)} imagens (pareamento 1:1)
+                {Math.max(selectedFundos.length, selectedEstilos.length) > 5 && <span className="text-amber-400 ml-1">(max 5)</span>}
+              </div>
+              {selectedFundos.length > 0 && selectedEstilos.length > 0 && (
+                <div className="space-y-0.5">
+                  {Array.from({ length: Math.min(Math.max(selectedFundos.length, selectedEstilos.length), 5) }).map((_, i) => {
+                    const fundoId = selectedFundos[i % selectedFundos.length];
+                    const estiloId = selectedEstilos[i % selectedEstilos.length];
+                    const fundoLabel = FUNDOS.find(f => f.id === fundoId)?.label || fundoId;
+                    const estiloLabel = ESTILOS.find(e => e.id === estiloId)?.label || estiloId;
+                    return (
+                      <div key={i} className="flex items-center gap-1">
+                        <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[8px] font-bold ${i === 0 ? "bg-violet-600 text-white" : "bg-zinc-700 text-zinc-300"}`}>{i + 1}</span>
+                        <span className="text-violet-400">{fundoLabel}</span>
+                        <span className="text-zinc-600">+</span>
+                        <span className="text-emerald-400">{estiloLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -531,6 +581,26 @@ export default function Home() {
         ) : "Gerar Tudo"}
       </button>
 
+      {/* ALERTAS DE ERRO */}
+      {alertas.length > 0 && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-red-400">Erros durante a geracao ({alertas.length})</h3>
+            <button onClick={() => setAlertas([])} className="text-xs text-red-400 hover:text-red-300 underline">Limpar</button>
+          </div>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {alertas.map((a, i) => (
+              <div key={i} className="text-xs text-red-300 bg-red-500/5 rounded px-2 py-1 font-mono break-all">
+                {a}
+              </div>
+            ))}
+          </div>
+          <div className="text-[10px] text-red-400/70">
+            Causas comuns: quota da API Gemini esgotada (aguarde alguns minutos), modelo de imagem indisponivel, ou timeout na Vercel (max 10s no plano free)
+          </div>
+        </div>
+      )}
+
       {/* RESULTADOS */}
       {(conteudo || generatedImages.length > 0) && (
         <div className="space-y-6 animate-fade-in">
@@ -540,25 +610,41 @@ export default function Home() {
             <div className="bg-zinc-900 rounded-xl p-5 border border-zinc-800">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold">Imagens ({generatedImages.length})</h3>
-                <button onClick={() => generatedImages.forEach((img, i) => downloadImage(img, i))}
+                <button onClick={() => generatedImages.forEach((g, i) => downloadImage(g.img, i))}
                   className="text-xs text-violet-400 hover:text-violet-300">Baixar todas</button>
               </div>
               <p className="text-[10px] text-zinc-500 mb-3">
-                Imagem 1 = principal. Clique nas setas para reordenar. X para excluir.
+                Imagem 1 = principal. Setas = reordenar. X = excluir. Selects = trocar fundo/estilo.
               </p>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-                {generatedImages.map((img, i) => (
+                {generatedImages.map((g, i) => (
                   <div key={i} className="relative group">
                     <div className={`absolute top-1 left-1 z-10 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${i === 0 ? "bg-violet-600 text-white" : "bg-zinc-700 text-zinc-300"}`}>
                       {i + 1}
                     </div>
                     {i === 0 && <div className="absolute top-1 right-8 z-10 bg-violet-600 text-white text-[8px] px-1.5 py-0.5 rounded font-bold">PRINCIPAL</div>}
 
-                    <img src={img} alt={`Img ${i + 1}`}
+                    <img src={g.img} alt={`Img ${i + 1}`}
                       className="w-full aspect-square object-cover rounded-lg border border-zinc-700" />
 
+                    {/* Labels fundo + estilo */}
+                    <div className="mt-1 space-y-1">
+                      <select value={g.fundo} onChange={e => {
+                        const newFundo = e.target.value;
+                        setGeneratedImages(prev => prev.map((item, idx) => idx === i ? { ...item, fundo: newFundo } : item));
+                      }} className="w-full bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-300">
+                        {FUNDOS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                      </select>
+                      <select value={g.estilo} onChange={e => {
+                        const newEstilo = e.target.value;
+                        setGeneratedImages(prev => prev.map((item, idx) => idx === i ? { ...item, estilo: newEstilo } : item));
+                      }} className="w-full bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-300">
+                        {ESTILOS.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+                      </select>
+                    </div>
+
                     {/* Controles */}
-                    <div className="absolute bottom-1 left-1 right-1 flex justify-between opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute bottom-12 left-1 right-1 flex justify-between opacity-0 group-hover:opacity-100 transition-opacity">
                       <div className="flex gap-1">
                         {i > 0 && (
                           <button onClick={() => moveImage(i, i - 1)}
@@ -574,7 +660,7 @@ export default function Home() {
                         )}
                       </div>
                       <div className="flex gap-1">
-                        <button onClick={() => downloadImage(img, i)}
+                        <button onClick={() => downloadImage(g.img, i)}
                           className="bg-black/80 text-white text-[10px] w-6 h-6 rounded flex items-center justify-center hover:bg-green-600">
                           ↓
                         </button>

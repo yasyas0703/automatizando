@@ -7,6 +7,8 @@ export async function POST(req: NextRequest) {
 
     const results: string[] = [];
 
+    const errors: string[] = [];
+
     for (const variation of variations) {
       const prompt = buildImagePrompt(productName, variation);
       console.log("Prompt imagem:", prompt.substring(0, 120) + "...");
@@ -19,11 +21,13 @@ export async function POST(req: NextRequest) {
         );
         results.push(imageBase64);
       } catch (error) {
-        console.error("Erro gerando variação:", error);
+        const msg = error instanceof Error ? error.message : "Erro desconhecido";
+        console.error("Erro gerando variação:", msg);
+        errors.push(msg);
       }
     }
 
-    return NextResponse.json({ images: results });
+    return NextResponse.json({ images: results, errors });
   } catch (error) {
     console.error("Erro ao gerar imagens:", error);
     const message = error instanceof Error ? error.message : "Erro ao gerar imagens";
@@ -75,20 +79,20 @@ function buildImagePrompt(
     comparacao: "before and after comparison, or multiple versions side by side",
     "360": "multiple angle grid showing front, back, side and detail views in one image",
     artistico: "creative artistic composition, interesting shadows and lighting, editorial style",
-    macro: "super macro close-up of surface texture, showing layer lines and material quality",
+    macro: "super macro close-up showing fine details and smooth surface finish, premium quality look",
     flutuando: "product floating in mid-air, dynamic levitation effect, dramatic shadow below",
   };
 
   const fundoDesc = fundos[variation.fundo] || fundos.branco;
   const estiloDesc = estilos[variation.estilo] || estilos.principal;
 
-  let prompt = `Professional e-commerce product photography of ${productName}, 3D printed object, high quality PLA material`;
+  let prompt = `Professional e-commerce product photography of ${productName}, smooth polished decorative figurine`;
 
   if (variation.cor && variation.cor !== "original") {
-    prompt += `, ${variation.cor} color`;
+    prompt += `, solid ${variation.cor} color, uniform matte finish`;
   }
 
-  prompt += `. ${fundoDesc}. ${estiloDesc}. High resolution, sharp, commercial quality, ready for marketplace listing.`;
+  prompt += `. ${fundoDesc}. ${estiloDesc}. The surface must be perfectly smooth, clean and flawless with NO visible lines, NO scratches, NO layer marks, NO ridges, NO striations. Looks like a factory-made injection molded product. High resolution, sharp focus, soft studio lighting, commercial product photography quality.`;
 
   return prompt;
 }
