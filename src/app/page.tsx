@@ -6,6 +6,7 @@ import {
   MATERIAIS,
   CORES,
   TEMPLATES_PACOTE,
+  VARIACOES_SAQUINHO,
 } from "@/lib/types";
 
 const FUNDOS = [
@@ -69,6 +70,7 @@ export default function Home() {
   const [pesoGramas, setPesoGramas] = useState<number>(0);
   const [categoria, setCategoria] = useState("Decoração");
   const [templatePacote, setTemplatePacote] = useState<"pequeno" | "medio" | "grande">("medio");
+  const [saquinho, setSaquinho] = useState("15x20");
 
   // Imagens config
   const [selectedFundos, setSelectedFundos] = useState<string[]>(["branco"]);
@@ -79,7 +81,7 @@ export default function Home() {
   // Resultados
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [conteudo, setConteudo] = useState<GeneratedData | null>(null);
-  const [preco, setPreco] = useState<{ custoMaterial: number; precoVenda: number; lucro: number } | null>(null);
+  const [preco, setPreco] = useState<{ custoMaterial: number; custoEmbalagem: number; custoTotal: number; taxaPlataforma: number; precoVenda: number; lucro: number } | null>(null);
 
   // ML
   const [mlConnected, setMlConnected] = useState(false);
@@ -100,8 +102,11 @@ export default function Home() {
 
   // Calcula preço em tempo real
   const custoMaterial = (pesoGramas / 1000) * 99;
-  const precoVenda = custoMaterial * 1.7;
-  const lucro = precoVenda - custoMaterial;
+  const custoEmbalagem = 3;
+  const custoTotal = custoMaterial + custoEmbalagem;
+  const precoVenda = (custoTotal * 1.65) / 0.80;
+  const taxaPlataforma = precoVenda * 0.20;
+  const lucro = precoVenda - custoTotal - taxaPlataforma;
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -361,6 +366,11 @@ export default function Home() {
                 })}
               </select>
             </div>
+            <div className="grid grid-cols-1 gap-2">
+              <select value={saquinho} onChange={e => setSaquinho(e.target.value)} className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500">
+                {VARIACOES_SAQUINHO.map(s => <option key={s.id} value={s.id}>Saquinho {s.label}</option>)}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -371,20 +381,34 @@ export default function Home() {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-zinc-800 rounded-lg p-3 text-center">
-                  <div className="text-[10px] text-zinc-500">CUSTO</div>
+                  <div className="text-[10px] text-zinc-500">FILAMENTO</div>
                   <div className="text-lg font-bold text-red-400">R$ {custoMaterial.toFixed(2)}</div>
                 </div>
                 <div className="bg-zinc-800 rounded-lg p-3 text-center">
-                  <div className="text-[10px] text-zinc-500">VENDA</div>
-                  <div className="text-lg font-bold text-green-400">R$ {precoVenda.toFixed(2)}</div>
+                  <div className="text-[10px] text-zinc-500">EMBALAGEM</div>
+                  <div className="text-lg font-bold text-red-400">R$ {custoEmbalagem.toFixed(2)}</div>
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-zinc-800 rounded-lg p-3 text-center">
+                  <div className="text-[10px] text-zinc-500">CUSTO TOTAL</div>
+                  <div className="text-lg font-bold text-orange-400">R$ {custoTotal.toFixed(2)}</div>
+                </div>
+                <div className="bg-zinc-800 rounded-lg p-3 text-center">
+                  <div className="text-[10px] text-zinc-500">TAXA PLATAFORMA (20%)</div>
+                  <div className="text-lg font-bold text-yellow-400">R$ {taxaPlataforma.toFixed(2)}</div>
+                </div>
+              </div>
+              <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-center">
+                <div className="text-[10px] text-green-400">PRECO DE VENDA</div>
+                <div className="text-xl font-bold text-green-400">R$ {precoVenda.toFixed(2)}</div>
+              </div>
               <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 text-center">
-                <div className="text-[10px] text-violet-400">LUCRO (70%)</div>
+                <div className="text-[10px] text-violet-400">LUCRO (65%)</div>
                 <div className="text-xl font-bold text-violet-400">R$ {lucro.toFixed(2)}</div>
               </div>
               <div className="text-[10px] text-zinc-500 text-center">
-                {pesoGramas}g | R$99/kg | Pacote: {dimensoes.largura}x{dimensoes.altura}x{dimensoes.profundidade}cm
+                {pesoGramas}g | R$99/kg | Embalagem R$3 | Plataforma 20% | Saquinho: {saquinho}
               </div>
             </div>
           ) : (

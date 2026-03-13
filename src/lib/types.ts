@@ -11,8 +11,11 @@ export interface ProductForm {
 
 export interface PriceCalculation {
   custoMaterial: number;
-  precoVenda: number;
+  custoEmbalagem: number;
+  custoTotal: number;
+  taxaPlataforma: number;
   lucro: number;
+  precoVenda: number;
   pesoKg: number;
 }
 
@@ -68,3 +71,8 @@ export const TEMPLATES_PACOTE = {
   medio: { largura: 25, altura: 20, profundidade: 15 },
   grande: { largura: 30, altura: 25, profundidade: 20 },
 };
+
+export const VARIACOES_SAQUINHO = [
+  { id: "15x20", label: "15x20" },
+  { id: "19x25", label: "19x25" },
+];
