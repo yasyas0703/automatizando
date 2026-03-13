@@ -55,11 +55,12 @@ export async function generateImage(
   mimeType: string = "image/png"
 ): Promise<string> {
   // Modelos de imagem em ordem de prioridade
-  const models = ["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview"];
+  const models = ["gemini-2.0-flash-exp", "gemini-2.0-flash"];
+  const erros: string[] = [];
 
   for (const modelName of models) {
     try {
-      console.log(`Imagem: gerando com ${modelName}...`);
+      console.log(`Imagem: tentando ${modelName}...`);
 
       const contents: Array<Record<string, unknown>> = [{ text: prompt }];
 
@@ -87,22 +88,18 @@ export async function generateImage(
         }
       }
 
-      console.log(`Imagem: ${modelName} não retornou imagem`);
+      const reason = response.candidates?.[0]?.finishReason || "sem imagem na resposta";
+      console.log(`Imagem: ${modelName} - ${reason}`);
+      erros.push(`${modelName}: ${reason}`);
       continue;
     } catch (error: unknown) {
-      const err = error as { message?: string };
-      const msg = err.message || "";
-      console.log(`Imagem: erro ${modelName} - ${msg.substring(0, 150)}`);
-
-      if (msg.includes("429") || msg.includes("quota")) {
-        continue; // Tenta próximo modelo
-      }
-      if (msg.includes("404")) {
-        continue; // Modelo não disponível
-      }
-      continue; // Qualquer erro, tenta próximo
+      const err = error as { message?: string; status?: number };
+      const msg = err.message || "erro desconhecido";
+      console.log(`Imagem: erro ${modelName} - ${msg.substring(0, 200)}`);
+      erros.push(`${modelName}: ${msg.substring(0, 150)}`);
+      continue;
     }
   }
 
-  throw new Error("Não foi possível gerar imagem. Quota pode estar esgotada - aguarde alguns minutos e tente novamente.");
+  throw new Error(`Falha em todos os modelos: ${erros.join(" | ")}`);
 }

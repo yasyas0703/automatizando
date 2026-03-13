@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateImage } from "@/lib/gemini";
 
+// Vercel: max execution time (Free=10s, Pro=300s)
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   try {
     const { productImage, productName, variations } = await req.json();

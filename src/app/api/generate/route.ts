@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateText, generateFromImage } from "@/lib/gemini";
 
+export const maxDuration = 60;
+
 function tryParseJSON(text: string) {
   text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "");
 
