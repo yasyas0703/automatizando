@@ -66,8 +66,11 @@ export default function Home() {
   const [nome, setNome] = useState("");
   const [material, setMaterial] = useState("PLA");
   const [cor, setCor] = useState("Preto");
-  const [tamanho, setTamanho] = useState("");
+  const [alturaZ, setAlturaZ] = useState("");
+  const [larguraX, setLarguraX] = useState("");
+  const [profundidadeY, setProfundidadeY] = useState("");
   const [pesoGramas, setPesoGramas] = useState<number>(0);
+  const [tempoImpressao, setTempoImpressao] = useState<number>(0);
   const [categoria, setCategoria] = useState("Decoração");
   const [templatePacote, setTemplatePacote] = useState<"pequeno" | "medio" | "grande">("medio");
   const [saquinho, setSaquinho] = useState("15x20");
@@ -107,6 +110,7 @@ export default function Home() {
   const precoVenda = (custoTotal * 1.65) / 0.80;
   const taxaPlataforma = precoVenda * 0.20;
   const lucro = precoVenda - custoTotal - taxaPlataforma;
+  const lucroPorHora = tempoImpressao > 0 ? lucro / tempoImpressao : 0;
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -169,7 +173,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nome, material, cor, tamanho, categoria, pesoGramas,
+          nome, material, cor, tamanho: `${alturaZ}x${larguraX}x${profundidadeY}cm (AxLxP)`, categoria, pesoGramas,
           precoVenda: precoData.precoVenda,
           productImage: productImage || undefined,
         }),
@@ -349,11 +353,22 @@ export default function Home() {
                 {CORES.map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
+            <div className="space-y-1">
+              <div className="text-[10px] text-zinc-500">DIMENSOES (cm)</div>
+              <div className="grid grid-cols-3 gap-2">
+                <input type="text" value={alturaZ} onChange={e => setAlturaZ(e.target.value)}
+                  placeholder="Altura (Z)" className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500" />
+                <input type="text" value={larguraX} onChange={e => setLarguraX(e.target.value)}
+                  placeholder="Largura (X)" className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500" />
+                <input type="text" value={profundidadeY} onChange={e => setProfundidadeY(e.target.value)}
+                  placeholder="Profund. (Y)" className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500" />
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-2">
-              <input type="text" value={tamanho} onChange={e => setTamanho(e.target.value)}
-                placeholder="Tamanho (ex: 20cm)" className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500" />
               <input type="number" value={pesoGramas || ""} onChange={e => setPesoGramas(Number(e.target.value))}
                 placeholder="Peso gramas *" className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500" />
+              <input type="number" step="0.5" value={tempoImpressao || ""} onChange={e => setTempoImpressao(Number(e.target.value))}
+                placeholder="Horas impressao" className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <select value={categoria} onChange={e => setCategoria(e.target.value)} className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500">
@@ -403,12 +418,29 @@ export default function Home() {
                 <div className="text-[10px] text-green-400">PRECO DE VENDA</div>
                 <div className="text-xl font-bold text-green-400">R$ {precoVenda.toFixed(2)}</div>
               </div>
-              <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 text-center">
-                <div className="text-[10px] text-violet-400">LUCRO (65%)</div>
-                <div className="text-xl font-bold text-violet-400">R$ {lucro.toFixed(2)}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 text-center">
+                  <div className="text-[10px] text-violet-400">LUCRO (65%)</div>
+                  <div className="text-xl font-bold text-violet-400">R$ {lucro.toFixed(2)}</div>
+                </div>
+                <div className={`rounded-lg p-3 text-center border ${tempoImpressao > 0 && lucroPorHora < 3 ? "bg-red-500/10 border-red-500/20" : tempoImpressao > 0 && lucroPorHora < 5 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-emerald-500/10 border-emerald-500/20"}`}>
+                  <div className="text-[10px] text-zinc-400">LUCRO/HORA</div>
+                  {tempoImpressao > 0 ? (
+                    <>
+                      <div className={`text-xl font-bold ${lucroPorHora < 3 ? "text-red-400" : lucroPorHora < 5 ? "text-yellow-400" : "text-emerald-400"}`}>
+                        R$ {lucroPorHora.toFixed(2)}/h
+                      </div>
+                      <div className={`text-[10px] mt-1 ${lucroPorHora < 3 ? "text-red-400" : lucroPorHora < 5 ? "text-yellow-400" : "text-emerald-400"}`}>
+                        {lucroPorHora < 3 ? "NAO COMPENSA" : lucroPorHora < 5 ? "AVALIE BEM" : "VALE A PENA"}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm text-zinc-600">Informe as horas</div>
+                  )}
+                </div>
               </div>
               <div className="text-[10px] text-zinc-500 text-center">
-                {pesoGramas}g | R$99/kg | Embalagem R$3 | Plataforma 20% | Saquinho: {saquinho}
+                {pesoGramas}g | R$99/kg | Embalagem R$3 | Plataforma 20%{tempoImpressao > 0 ? ` | ${tempoImpressao}h impressao` : ""} | Saquinho: {saquinho}
               </div>
             </div>
           ) : (
